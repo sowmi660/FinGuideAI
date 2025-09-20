@@ -1,0 +1,2 @@
+# FinGuideAI
+Personal Finance chatbot

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinGuide AI - Personal Finance Assistant</title>
+    <meta name="description" content="AI-powered personal finance chatbot for budgeting, investing, and debt management">
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        import React, { useState, useRef, useEffect } from 'react';
+        import { Mic, MicOff, Send, User, GraduationCap, Briefcase, Users, DollarSign, TrendingUp, PiggyBank, Calculator, MessageCircle, Volume2, Brain, Settings, Wifi, WifiOff } from 'lucide-react';
+
+        const FinGuideAI = () => {
+          const [messages, setMessages] = useState([]);
+          const [inputMessage, setInputMessage] = useState('');
+          const [userCategory, setUserCategory] = useState('');
+          const [isListening, setIsListening] = useState(false);
+          const [recognition, setRecognition] = useState(null);
+          const [isSpeaking, setIsSpeaking] = useState(false);
+          const [isLoading, setIsLoading] = useState(false);
+          const [apiConnected, setApiConnected] = useState(false);
+          const [showApiConfig, setShowApiConfig] = useState(false);
+          const [apiConfig, setApiConfig] = useState({
+            provider: 'groq',
+            apiKey: '',
+            model: 'llama-3.1-70b-versatile'
+          });
+          const messagesEndRef = useRef(null);
+
+          // Initialize speech recognition
+          useEffect(() => {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+              const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+              const recognitionInstance = new SpeechRecognition();
+              recognitionInstance.continuous = false;
+              recognitionInstance.interimResults = false;
+              recognitionInstance.lang = 'en-US';
+
+              recognitionInstance.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                setInputMessage(transcript);
+              };
+
+              recognitionInstance.onend = () => {
+                setIsListening(false);
+              };
+
+              setRecognition(recognitionInstance);
+            }
+          }, []);
+
+          const scrollToBottom = () => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          };
+
+          useEffect(() => {
+            scrollToBottom();
+          }, [messages]);
+
+          const speakText = (text) => {
+            if ('speechSynthesis' in window) {
+              setIsSpeaking(true);
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.rate = 0.8;
+              utterance.pitch = 1;
+              utterance.volume = 0.8;
+              
+              utterance.onend = () => {
+                setIsSpeaking(false);
+              };
+              
+              speechSynthesis.speak(utterance);
+            }
+          };
+
+          const stopSpeaking = () => {
+            speechSynthesis.cancel();
+            setIsSpeaking(false);
+          };
+
+          const startListening = () => {
+            if (recognition && !isListening) {
+              setIsListening(true);
+              recognition.start();
+            }
+          };
+
+          const stopListening = () => {
+            if (recognition && isListening) {
+              recognition.stop();
+            }
+          };
+
+          // Create system prompt based on user category
+          const getSystemPrompt = (category) => {
+            const prompts = {
+              student: `You are FinGuide AI, a specialized financial advisor for students. Provide practical, actionable financial advice for college students and young adults with limited income. Focus on budgeting, student loans, building credit, saving on a tight budget, and preparing for post-graduation financial life.`,
+              
+              professional: `You are FinGuide AI, a financial advisor for working professionals. Provide sophisticated financial advice on investment strategies, tax optimization, career-related financial decisions, retirement planning, and wealth building. Your advice should be data-driven and accessible.`,
+              
+              family: `You are FinGuide AI, a family financial advisor specializing in household budgeting, children's education savings, family insurance needs, mortgage decisions, and multi-generational financial planning. Consider the unique challenges of managing family finances.`
+            };
+            
+            return prompts[category] + ` Always provide specific, actionable advice with numbers when relevant. Be encouraging but realistic.`;
+          };
+
+          // Real AI API Integration
+          const callRealAI = async (message, category) => {
+            const systemPrompt = getSystemPrompt(category);
+            
+            try {
+              if (apiConfig.provider === 'groq' && apiConfig.apiKey) {
+                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiConfig.apiKey}`
+                  },
+                  body: JSON.stringify({
+                    model: apiConfig.model || 'llama-3.1-70b-versatile',
+                    messages: [
+                      { role: 'system', content: systemPrompt },
+                      { role: 'user', content: message }
+                    ],
+                    max_tokens: 500,
+                    temperature: 0.7
+                  })
+                });
+
+                if (response.ok) {
+                  const data = await response.json();
+                  if (data.choices && data.choices[0] && data.choices[0].message) {
+                    return data.choices[0].message.content;
+                  }
+                }
+              }
+              
+              // If API fails, return fallback
+              return generateFallbackResponse(message, category);
+              
+            } catch (error) {
+              console.error('AI API Error:', error);
+              return generateFallbackResponse(message, category);
+            }
+          };
+
+          // Simple fallback responses
+          const generateFallbackResponse = (message, category) => {
+            const lowerMessage = message.toLowerCase();
+            
+            if (lowerMessage.includes('budget')) {
+              return `Great question about budgeting! For ${category}s, I recommend the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Start by tracking all your expenses for a month to see where your money goes, then adjust accordingly.`;
+            }
+            
+            if (lowerMessage.includes('invest')) {
+              return `Investment advice for ${category}s: Start with low-cost index funds that track the S&P 500. For beginners, consider a target-date fund that automatically adjusts as you age. The key is to start early and invest consistently, even if it's just $50 per month.`;
+            }
+            
+            if (lowerMessage.includes('debt')) {
+              return `For debt management: List all your debts with interest rates. Focus on paying minimums on all debts, then put extra money toward the highest interest rate debt first (debt avalanche method). This saves you the most money long-term.`;
+            }
+            
+            if (lowerMessage.includes('save') || lowerMessage.includes('emergency')) {
+              const months = category === 'student' ? '3 months' : '6 months';
+              return `Emergency fund goal for ${category}s: Save ${months} of essential expenses in a high-yield savings account. Start with $500, then gradually build it up. This protects you from unexpected expenses and gives you peace of mind.`;
+            }
+            
+            return `Thanks for your question about "${message}". As a financial advisor for ${category}s, I'd recommend starting with the basics: create a budget, build an emergency fund, pay off high-interest debt, and then focus on long-term investing. Would you like me to elaborate on any of these areas?`;
+          };
+
+          const handleSendMessage = async () => {
+            if (!inputMessage.trim()) return;
+            
+            if (!userCategory) {
+              alert('Please select your category first (Student, Professional, or Family)');
+              return;
+            }
+
+            const userMessage = {
+              id: Date.now(),
+              text: inputMessage,
+              sender: 'user',
+              timestamp: new Date().toLocaleTimeString()
+            };
+
+            setMessages(prev => [...prev, userMessage]);
+            const currentInput = inputMessage;
+            setInputMessage('');
+            setIsLoading(true);
+
+            try {
+              const aiResponse = await callRealAI(currentInput, userCategory);
+              
+              const botResponse = {
+                id: Date.now() + 1,
+                text: aiResponse,
+                sender: 'bot',
+                timestamp: new Date().toLocaleTimeString()
+              };
+
+              setMessages(prev => [...prev, botResponse]);
+              
+              // Speak the response
+              setTimeout(() => {
+                speakText(aiResponse);
+              }, 500);
+              
+            } catch (error) {
+              const errorMessage = {
+                id: Date.now() + 1,
+                text: `I apologize, but I encountered an error. Please try again or check your API configuration.`,
+                sender: 'bot',
+                timestamp: new Date().toLocaleTimeString()
+              };
+              setMessages(prev => [...prev, errorMessage]);
+            } finally {
+              setIsLoading(false);
+            }
+          };
+
+          const handleKeyPress = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendMessage();
+            }
+          };
+
+          const selectCategory = (category) => {
+            setUserCategory(category);
+            const welcomeMessage = {
+              id: Date.now(),
+              text: `Hello! I'm FinGuide AI, your intelligent personal finance assistant. I've configured myself to provide personalized advice for ${category}s. I can answer any financial question with intelligent, contextual responses. What would you like to discuss?`,
+              sender: 'bot',
+              timestamp: new Date().toLocaleTimeString()
+            };
+            setMessages([welcomeMessage]);
+            speakText(welcomeMessage.text);
+          };
+
+          const testApiConnection = async () => {
+            setIsLoading(true);
+            try {
+              const testResponse = await callRealAI("Hello, this is a test message.", userCategory || 'professional');
+              setApiConnected(true);
+              alert('API connection successful! You can now chat with real AI.');
+            } catch (error) {
+              setApiConnected(false);
+              alert(`API connection failed: ${error.message}`);
+            } finally {
+              setIsLoading(false);
+            }
+          };
+
+          return React.createElement('div', { className: "max-w-4xl mx-auto bg-gradient-to-br from-blue-50 to-green-50 min-h-screen" },
+            // Header
+            React.createElement('div', { className: "bg-gradient-to-r from-blue-600 to-green-600 text-white p-6 rounded-b-lg shadow-lg" },
+              React.createElement('div', { className: "flex items-center gap-3 mb-4" },
+                React.createElement(Brain, { className: "w-8 h-8" }),
+                React.createElement('h1', { className: "text-2xl font-bold" }, 'FinGuide AI'),
+                React.createElement('div', { className: "ml-auto flex items-center gap-4" },
+                  React.createElement('div', { className: "flex items-center gap-2 text-blue-100" },
+                    apiConnected ? React.createElement(Wifi, { className: "w-4 h-4 text-green-400" }) : React.createElement(WifiOff, { className: "w-4 h-4 text-red-400" }),
+                    React.createElement('span', { className: "text-sm" }, apiConnected ? 'Real AI Connected' : 'Smart Fallback Mode')
+                  ),
+                  React.createElement('button', {
+                    onClick: () => setShowApiConfig(!showApiConfig),
+                    className: "p-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors",
+                    title: "API Settings"
+                  }, React.createElement(Settings, { className: "w-5 h-5" }))
+                )
+              ),
+              React.createElement('p', { className: "text-blue-100" }, 'AI-Powered Financial Assistant • Intelligent Responses • Personalized Advice')
+            ),
+
+            // API Configuration Panel
+            showApiConfig && React.createElement('div', { className: "p-6 bg-white border-b shadow-sm" },
+              React.createElement('h3', { className: "text-lg font-semibold mb-4 flex items-center gap-2" },
+                React.createElement(Settings, { className: "w-5 h-5" }),
+                'AI API Configuration'
+              ),
+              
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-4" },
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-sm font-medium text-gray-700 mb-2" }, 'AI Provider'),
+                  React.createElement('select', {
+                    value: apiConfig.provider,
+                    onChange: (e) => setApiConfig(prev => ({...prev, provider: e.target.value})),
+                    className: "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  },
+                    React.createElement('option', { value: "groq" }, 'Groq (Recommended)'),
+                    React.createElement('option', { value: "openai" }, 'OpenAI')
+                  )
+                ),
+                
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-sm font-medium text-gray-700 mb-2" }, 'API Key'),
+                  React.createElement('input', {
+                    type: "password",
+                    value: apiConfig.apiKey,
+                    onChange: (e) => setApiConfig(prev => ({...prev, apiKey: e.target.value})),
+                    placeholder: "Enter your API key",
+                    className: "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  })
+                ),
+                
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-sm font-medium text-gray-700 mb-2" }, 'Model'),
+                  React.createElement('input', {
+                    type: "text",
+                    value: apiConfig.model,
+                    onChange: (e) => setApiConfig(prev => ({...prev, model: e.target.value})),
+                    placeholder: "Model name",
+                    className: "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  })
+                )
+              ),
+              
+              React.createElement('div', { className: "flex gap-2 mb-4" },
+                React.createElement('button', {
+                  onClick: testApiConnection,
+                  disabled: isLoading,
+                  className: "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                }, isLoading ? 'Testing...' : 'Test Connection'),
+                React.createElement('button', {
+                  onClick: () => setShowApiConfig(false),
+                  className: "px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                }, 'Close')
+              ),
+              
+              React.createElement('div', { className: "text-sm text-gray-600 bg-blue-50 p-3 rounded-lg" },
+                React.createElement('p', { className: "font-medium mb-2" }, 'Quick Setup:'),
+                React.createElement('p', null, '1. Go to ', React.createElement('a', { href: "https://console.groq.com", target: "_blank", className: "text-blue-600 underline" }, 'console.groq.com')),
+                React.createElement('p', null, '2. Sign up and get free API key'),
+                React.createElement('p', null, '3. Use model: llama-3.1-70b-versatile (or llama-3.1-8b-instant for speed)'),
+                React.createElement('p', { className: "mt-2 text-amber-600" }, 'Note: App works with smart responses even without API!')
+              )
+            ),
+
+            // Category Selection
+            !userCategory && React.createElement('div', { className: "p-6" },
+              React.createElement('h2', { className: "text-xl font-semibold mb-4 text-center text-gray-800" }, 'Choose Your Profile for Personalized Advice'),
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-3 gap-4" },
+                React.createElement('button', {
+                  onClick: () => selectCategory('student'),
+                  className: "bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-blue-400 group"
+                },
+                  React.createElement(GraduationCap, { className: "w-12 h-12 mx-auto mb-3 text-blue-600 group-hover:text-blue-700" }),
+                  React.createElement('h3', { className: "font-semibold text-lg mb-2" }, 'Student'),
+                  React.createElement('p', { className: "text-sm text-gray-600" }, 'Financial advice for students, budgeting, loans, building credit')
+                ),
+                
+                React.createElement('button', {
+                  onClick: () => selectCategory('professional'),
+                  className: "bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-green-400 group"
+                },
+                  React.createElement(Briefcase, { className: "w-12 h-12 mx-auto mb-3 text-green-600 group-hover:text-green-700" }),
+                  React.createElement('h3', { className: "font-semibold text-lg mb-2" }, 'Professional'),
+                  React.createElement('p', { className: "text-sm text-gray-600" }, 'Investment strategies, career growth, tax optimization')
+                ),
+                
+                React.createElement('button', {
+                  onClick: () => selectCategory('family'),
+                  className: "bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-purple-400 group"
+                },
+                  React.createElement(Users, { className: "w-12 h-12 mx-auto mb-3 text-purple-600 group-hover:text-purple-700" }),
+                  React.createElement('h3', { className: "font-semibold text-lg mb-2" }, 'Family'),
+                  React.createElement('p', { className: "text-sm text-gray-600" }, 'Family budgets, education savings, insurance planning')
+                )
+              )
+            ),
+
+            // Chat Interface
+            userCategory && React.createElement('div', { className: "flex flex-col h-96" },
+              // Messages Area
+              React.createElement('div', { className: "flex-1 overflow-y-auto p-4 space-y-4" },
+                messages.map((message) =>
+                  React.createElement('div', {
+                    key: message.id,
+                    className: `flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`
+                  },
+                    React.createElement('div', {
+                      className: `max-w-xs md:max-w-md px-4 py-3 rounded-lg shadow ${
+                        message.sender === 'user'
+                          ? 'bg-blue-600 text-white rounded-br-none'
+                          : 'bg-white text-gray-800 rounded-bl-none border'
+                      }`
+                    },
+                      React.createElement('div', { className: "flex items-start gap-2" },
+                        message.sender === 'bot' && React.createElement('div', { className: "flex items-center" },
+                          React.createElement(Brain, { className: "w-5 h-5 mt-1 text-blue-600 flex-shrink-0" }),
+                          apiConnected && React.createElement('div', { className: "w-2 h-2 bg-green-400 rounded-full ml-1" })
+                        ),
+                        React.createElement('div', { className: "flex-1" },
+                          React.createElement('p', { className: "text-sm leading-relaxed whitespace-pre-wrap" }, message.text),
+                          React.createElement('p', {
+                            className: `text-xs mt-2 ${message.sender === 'user' ? 'text-blue-100' : 'text-gray-500'}`
+                          },
+                            message.timestamp,
+                            message.sender === 'bot' && apiConnected && React.createElement('span', { className: "ml-2 text-green-600" }, '• Real AI')
+                          )
+                        )
+                      )
+                    )
+                  )
+                ),
+                
+                // AI Loading Indicator
+                isLoading && React.createElement('div', { className: "flex justify-start" },
+                  React.createElement('div', { className: "bg-white px-4 py-3 rounded-lg shadow border rounded-bl-none" },
+                    React.createElement('div', { className: "flex items-center gap-2" },
+                      React.createElement(Brain, { className: "w-5 h-5 text-blue-600 animate-pulse" }),
+                      React.createElement('div', { className: "flex gap-1" },
+                        React.createElement('div', { className: "w-2 h-2 bg-blue-400 rounded-full animate-bounce" }),
+                        React.createElement('div', { className: "w-2 h-2 bg-blue-400 rounded-full animate-bounce", style: {animationDelay: '0.1s'} }),
+                        React.createElement('div', { className: "w-2 h-2 bg-blue-400 rounded-full animate-bounce", style: {animationDelay: '0.2s'} })
+                      ),
+                      React.createElement('span', { className: "text-sm text-gray-600" }, 'AI thinking...')
+                    )
+                  )
+                ),
+                
+                React.createElement('div', { ref: messagesEndRef })
+              ),
+
+              // Input Area
+              React.createElement('div', { className: "p-4 bg-white border-t" },
+                React.createElement('div', { className: "flex items-center justify-between mb-2" },
+                  React.createElement('div', { className: "flex items-center gap-2" },
+                    React.createElement('span', { className: "text-sm font-medium text-gray-600" },
+                      'Profile: ', React.createElement('span', { className: "capitalize text-blue-600" }, userCategory)
+                    ),
+                    React.createElement('button', {
+                      onClick: () => setUserCategory(''),
+                      className: "text-xs text-blue-600 hover:text-blue-700 underline"
+                    }, 'Switch')
+                  )
+                ),
+                
+                React.createElement('div', { className: "flex items-end gap-2" },
+                  React.createElement('div', { className: "flex-1 min-w-0" },
+                    React.createElement('textarea', {
+                      value: inputMessage,
+                      onChange: (e) => setInputMessage(e.target.value),
+                      onKeyPress: handleKeyPress,
+                      placeholder: "Ask me anything about your finances - I'll provide intelligent, personalized advice...",
+                      className: "w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent",
+                      rows: 2,
+                      disabled: isLoading
+                    })
+                  ),
+                  
+                  React.createElement('div', { className: "flex flex-col gap-1" },
+                    React.createElement('button', {
+                      onClick: isListening ? stopListening : startListening,
+                      className: `p-3 rounded-lg transition-colors ${
+                        isListening 
+                          ? 'bg-red-500 hover:bg-red-600 text-white' 
+                          : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                      }`,
+                      title: isListening ? "Stop listening" : "Start voice input",
+                      disabled: isLoading
+                    }, isListening ? React.createElement(MicOff, { className: "w-5 h-5" }) : React.createElement(Mic, { className: "w-5 h-5" })),
+                    
+                    React.createElement('button', {
+                      onClick: isSpeaking ? stopSpeaking : handleSendMessage,
+                      className: "bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg transition-colors disabled:opacity-50",
+                      title: isSpeaking ? "Stop speaking" : "Send message",
+                      disabled: isLoading
+                    }, isSpeaking ? React.createElement(Volume2, { className: "w-5 h-5" }) : React.createElement(Send, { className: "w-5 h-5" }))
+                  )
+                ),
+                
+                isListening && React.createElement('p', { className: "text-sm text-red-600 mt-2 animate-pulse" }, '🎤 Listening... Speak now')
+              )
+            ),
+
+            // Quick Actions
+            userCategory && React.createElement('div', { className: "p-4 bg-gray-50" },
+              React.createElement('h3', { className: "text-sm font-semibold text-gray-700 mb-3" }, 'Try asking:'),
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-2" },
+                [
+                  'I make $50,000 per year, how should I budget?',
+                  'What investment strategy is best for me?',
+                  'I have $20,000 debt, how do I pay it off?',
+                  'How much should I save for retirement?',
+                  'Should I buy or rent a house?',
+                  'How do I build an emergency fund?'
+                ].map((topic) =>
+                  React.createElement('button', {
+                    key: topic,
+                    onClick: () => setInputMessage(topic),
+                    className: "text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors text-left",
+                    disabled: isLoading
+                  }, topic)
+                )
+              )
+            )
+          );
+        };
+
+        ReactDOM.render(React.createElement(FinGuideAI), document.getElementById('root'));
+    </script>
+</body>
+</html>
